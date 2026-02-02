@@ -37,6 +37,11 @@ Gemini is the default provider. To use a different provider, edit `~/.config/hal
       "model": "gpt-4o",
       "api_key_env": "HAL_API_KEY_OPENAI"
     },
+    "anthropic": {
+      "base_url": "https://api.anthropic.com/v1",
+      "model": "claude-sonnet-4-20250514",
+      "api_key_env": "HAL_API_KEY_ANTHROPIC"
+    },
     "ollama": {
       "base_url": "http://localhost:11434/v1",
       "model": "llama3",
