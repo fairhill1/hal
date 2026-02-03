@@ -103,12 +103,7 @@ fn setup(mut config: Config) -> Result<Config, String> {
 
     println!("  Select a provider:");
     for (i, name) in provider_names.iter().enumerate() {
-        let label = if name == "gemini" {
-            format!("{} (free)", name)
-        } else {
-            name.clone()
-        };
-        println!("    {}. {}", i + 1, label);
+        println!("    {}. {}", i + 1, name);
     }
     print!("  > ");
     io::stdout().flush().map_err(|e| e.to_string())?;

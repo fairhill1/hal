@@ -137,7 +137,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let left = Line::from(vec![
-        Span::styled(" hal", Style::default().fg(Color::Magenta).bold()),
+        Span::styled(format!(" hal {}", env!("CARGO_PKG_VERSION")), Style::default().fg(Color::Magenta).bold()),
         Span::styled(" · ", Style::default().fg(Color::Gray)),
         Span::styled(&app.config.default_provider, Style::default().fg(Color::Cyan)),
         Span::styled(format!(" [{}]", mode), Style::default().fg(Color::Gray)),
@@ -154,7 +154,8 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let left_len = 4 + 3 + app.config.default_provider.len() + 2 + mode.len() + 3; // approximate + padding
+    let version = env!("CARGO_PKG_VERSION");
+    let left_len = 4 + 1 + version.len() + 3 + app.config.default_provider.len() + 2 + mode.len() + 3; // approximate + padding
     let right_len = right.len();
     let available = (area.width as usize).saturating_sub(left_len + right_len + 2);
 

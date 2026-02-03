@@ -275,7 +275,84 @@ impl App {
                 self.input_cursor = 0;
                 return;
             }
+            "/provider" => {
+                let mut names: Vec<String> = self.config.providers.keys().cloned().collect();
+                names.sort();
+                let list: Vec<String> = names
+                    .iter()
+                    .map(|n| {
+                        if n == &self.config.default_provider {
+                            format!("- **{}** (active)", n)
+                        } else {
+                            format!("- {}", n)
+                        }
+                    })
+                    .collect();
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: format!("**Providers:**\n{}\n\nSwitch with `/provider <name>`", list.join("\n")),
+                });
+                self.input.clear();
+                self.input_cursor = 0;
+                return;
+            }
             _ => {}
+        }
+
+        // Handle /provider <name>
+        if let Some(name) = input.strip_prefix("/provider ") {
+            let name = name.trim().to_string();
+            if let Some(new_provider) = self.config.providers.get(&name) {
+                let key = new_provider
+                    .api_key
+                    .clone()
+                    .or_else(|| std::env::var(&new_provider.api_key_env).ok());
+                if let Some(key) = key {
+                    self.config.default_provider = name.clone();
+                    self.provider = new_provider.clone();
+                    self.api_key = key;
+                    let _ = self.config.save();
+                    self.messages.push(ChatMessage {
+                        role: MessageRole::Assistant,
+                        content: format!("Switched to **{}** ({})", name, self.provider.model),
+                    });
+                } else {
+                    self.messages.push(ChatMessage {
+                        role: MessageRole::Assistant,
+                        content: format!("No API key for **{}**. Set it with `/key <key>` after switching, or set ${}", name, new_provider.api_key_env),
+                    });
+                }
+            } else {
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: format!("Unknown provider: {}", name),
+                });
+            }
+            self.input.clear();
+            self.input_cursor = 0;
+            return;
+        }
+
+        // Handle /key <value>
+        if let Some(key) = input.strip_prefix("/key ") {
+            let key = key.trim().to_string();
+            if key.is_empty() {
+                self.error = Some("API key cannot be empty".to_string());
+            } else {
+                self.api_key = key.clone();
+                if let Some(provider) = self.config.providers.get_mut(&self.config.default_provider) {
+                    provider.api_key = Some(key);
+                    self.provider = provider.clone();
+                }
+                let _ = self.config.save();
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: format!("API key updated for **{}**", self.config.default_provider),
+                });
+            }
+            self.input.clear();
+            self.input_cursor = 0;
+            return;
         }
 
         // Handle /load command
@@ -1033,6 +1110,8 @@ fn get_commands() -> Vec<String> {
         "clear".to_string(),
         "sessions".to_string(),
         "load".to_string(),
+        "provider".to_string(),
+        "key".to_string(),
         "help".to_string(),
         "quit".to_string(),
     ]
@@ -1042,6 +1121,9 @@ const HELP_TEXT: &str = r#"**Commands:**
 - `/clear` - Save and start new session
 - `/sessions` - List saved sessions
 - `/load <id>` - Load a saved session
+- `/provider` - List providers
+- `/provider <name>` - Switch provider
+- `/key <key>` - Set API key for current provider
 - `/quit` - Exit (also /exit, /q)
 - `/help` - Show this help
 

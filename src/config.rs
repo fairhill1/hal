@@ -128,6 +128,26 @@ impl Default for Config {
             },
         );
 
+        providers.insert(
+            "glm".to_string(),
+            Provider {
+                base_url: "https://api.z.ai/api/paas/v4/".to_string(),
+                model: "glm-4.7".to_string(),
+                api_key_env: "HAL_API_KEY_GLM".to_string(),
+                api_key: None,
+            },
+        );
+
+        providers.insert(
+            "kimi".to_string(),
+            Provider {
+                base_url: "https://api.moonshot.ai/v1".to_string(),
+                model: "kimi-k2.5".to_string(),
+                api_key_env: "HAL_API_KEY_KIMI".to_string(),
+                api_key: None,
+            },
+        );
+
         Config {
             default_provider: "gemini".to_string(),
             mode: Mode::Coding,
