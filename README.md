@@ -1,6 +1,6 @@
 # hal
 
-An agentic TUI coding assistant written in Rust.
+Blazing fast TUI coding agent. Bring your own keys.
 
 ![hal screenshot](assets/screenshot.png)
 
