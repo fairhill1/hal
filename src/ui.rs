@@ -1,4 +1,4 @@
-use crate::app::{App, AppState, MessageRole, PermissionModal, PickerMode, MAX_PICKER_ITEMS};
+use crate::app::{App, AppState, MessageRole, PermissionModal, ProviderModal, PickerMode, MAX_PICKER_ITEMS};
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
@@ -127,6 +127,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Draw permission modal if active
     if let Some(modal) = &app.permission_modal {
         draw_permission_modal(frame, modal);
+    }
+
+    // Draw provider modal if active
+    if let Some(modal) = &app.provider_modal {
+        draw_provider_modal(frame, modal, &app.config.default_provider, &app.config.providers);
     }
 }
 
@@ -687,6 +692,60 @@ fn draw_permission_modal(frame: &mut Frame, modal: &PermissionModal) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Magenta))
         .title(" Sandbox ")
+        .title_style(Style::default().fg(Color::Magenta));
+
+    let para = Paragraph::new(Text::from(lines))
+        .block(block)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(para, modal_area);
+}
+
+fn draw_provider_modal(frame: &mut Frame, modal: &ProviderModal, active: &str, providers: &std::collections::HashMap<String, crate::config::Provider>) {
+    let area = frame.area();
+
+    let height = (modal.providers.len() as u16 + 4).min(area.height.saturating_sub(4));
+    let width = 50.min(area.width.saturating_sub(4));
+
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+
+    let modal_area = Rect { x, y, width, height };
+
+    frame.render_widget(Clear, modal_area);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Select Model",
+            Style::default().fg(Color::Magenta).bold(),
+        )),
+        Line::from(""),
+    ];
+
+    for (i, name) in modal.providers.iter().enumerate() {
+        let is_active = name == active;
+        let model = providers.get(name).map(|p| p.model.as_str()).unwrap_or("?");
+        let selected = i == modal.selected;
+        let prefix = if selected { "› " } else { "  " };
+        let name_style = if selected {
+            Style::default().fg(Color::Magenta).bold()
+        } else {
+            Style::default().fg(Color::White)
+        };
+        let mut spans = vec![
+            Span::styled(prefix, name_style),
+            Span::styled(format!("{}/{}", name, model), name_style),
+        ];
+        if is_active {
+            spans.push(Span::styled(" *", Style::default().fg(Color::Green)));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta))
+        .title(" Model ")
         .title_style(Style::default().fg(Color::Magenta));
 
     let para = Paragraph::new(Text::from(lines))

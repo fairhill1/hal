@@ -28,7 +28,7 @@ fn main() {
             "-c" | "--coach" => {
                 config.mode = Mode::Coach;
             }
-            "--provider" | "-p" => {
+            "--model" | "-m" => {
                 if i + 1 < args.len() {
                     config.default_provider = args[i + 1].clone();
                     i += 1;
@@ -160,7 +160,7 @@ fn print_help() {
     println!("    hal [OPTIONS]");
     println!("\nOPTIONS:");
     println!("    -c, --coach              Run in coach mode");
-    println!("    -p, --provider <NAME>    Provider name from config (default: gemini)");
+    println!("    -m, --model <NAME>       Model name from config (default: gemini)");
     println!("    -r, --resume             Resume the last session");
     println!("    -s, --session <ID>       Load a specific session by ID");
     println!("    -h, --help               Print help");

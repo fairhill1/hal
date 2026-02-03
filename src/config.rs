@@ -102,7 +102,7 @@ impl Default for Config {
             "openai".to_string(),
             Provider {
                 base_url: "https://api.openai.com/v1".to_string(),
-                model: "gpt-4o".to_string(),
+                model: "gpt-5.2-codex".to_string(),
                 api_key_env: "HAL_API_KEY_OPENAI".to_string(),
                 api_key: None,
             },
@@ -112,7 +112,7 @@ impl Default for Config {
             "anthropic".to_string(),
             Provider {
                 base_url: "https://api.anthropic.com/v1".to_string(),
-                model: "claude-sonnet-4-20250514".to_string(),
+                model: "claude-opus-4.5".to_string(),
                 api_key_env: "HAL_API_KEY_ANTHROPIC".to_string(),
                 api_key: None,
             },

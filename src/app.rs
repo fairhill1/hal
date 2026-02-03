@@ -36,6 +36,12 @@ pub enum PickerMode {
 }
 
 #[derive(Debug, Clone)]
+pub struct ProviderModal {
+    pub providers: Vec<String>,
+    pub selected: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct PermissionModal {
     pub path: String,
     pub reason: String,
@@ -92,6 +98,7 @@ pub struct App {
     pub error: Option<String>,
     pub token_usage: Option<(u32, u32)>, // (prompt, completion)
     pub permission_modal: Option<PermissionModal>,
+    pub provider_modal: Option<ProviderModal>,
     pub temp_allowed_paths: Vec<String>, // Paths allowed for this session only
     tool_defs: Vec<Value>,
     api_key: String,
@@ -174,6 +181,7 @@ impl App {
             error: None,
             token_usage: None,
             permission_modal: None,
+            provider_modal: None,
             temp_allowed_paths: Vec::new(),
             tool_defs,
             api_key,
@@ -275,22 +283,22 @@ impl App {
                 self.input_cursor = 0;
                 return;
             }
-            "/provider" => {
-                let mut names: Vec<String> = self.config.providers.keys().cloned().collect();
-                names.sort();
-                let list: Vec<String> = names
-                    .iter()
-                    .map(|n| {
-                        if n == &self.config.default_provider {
-                            format!("- **{}** (active)", n)
-                        } else {
-                            format!("- {}", n)
-                        }
-                    })
-                    .collect();
+            "/key" => {
                 self.messages.push(ChatMessage {
                     role: MessageRole::Assistant,
-                    content: format!("**Providers:**\n{}\n\nSwitch with `/provider <name>`", list.join("\n")),
+                    content: format!("Usage: `/key <key>` — sets the API key for **{}**", self.config.default_provider),
+                });
+                self.input.clear();
+                self.input_cursor = 0;
+                return;
+            }
+            "/model" => {
+                let mut names: Vec<String> = self.config.providers.keys().cloned().collect();
+                names.sort();
+                let selected = names.iter().position(|n| n == &self.config.default_provider).unwrap_or(0);
+                self.provider_modal = Some(ProviderModal {
+                    providers: names,
+                    selected,
                 });
                 self.input.clear();
                 self.input_cursor = 0;
@@ -299,33 +307,34 @@ impl App {
             _ => {}
         }
 
-        // Handle /provider <name>
-        if let Some(name) = input.strip_prefix("/provider ") {
+        // Handle /model <name>
+        if let Some(name) = input.strip_prefix("/model ") {
             let name = name.trim().to_string();
             if let Some(new_provider) = self.config.providers.get(&name) {
                 let key = new_provider
                     .api_key
                     .clone()
                     .or_else(|| std::env::var(&new_provider.api_key_env).ok());
+                self.config.default_provider = name.clone();
+                self.provider = new_provider.clone();
+                let _ = self.config.save();
                 if let Some(key) = key {
-                    self.config.default_provider = name.clone();
-                    self.provider = new_provider.clone();
                     self.api_key = key;
-                    let _ = self.config.save();
                     self.messages.push(ChatMessage {
                         role: MessageRole::Assistant,
                         content: format!("Switched to **{}** ({})", name, self.provider.model),
                     });
                 } else {
+                    self.api_key = String::new();
                     self.messages.push(ChatMessage {
                         role: MessageRole::Assistant,
-                        content: format!("No API key for **{}**. Set it with `/key <key>` after switching, or set ${}", name, new_provider.api_key_env),
+                        content: format!("Switched to **{}** ({}). No API key set — use `/key <key>` or set ${}", name, self.provider.model, new_provider.api_key_env),
                     });
                 }
             } else {
                 self.messages.push(ChatMessage {
                     role: MessageRole::Assistant,
-                    content: format!("Unknown provider: {}", name),
+                    content: format!("Unknown model: {}", name),
                 });
             }
             self.input.clear();
@@ -697,6 +706,12 @@ impl App {
     }
 
     pub fn modal_up(&mut self) {
+        if let Some(modal) = &mut self.provider_modal {
+            if modal.selected > 0 {
+                modal.selected -= 1;
+            }
+            return;
+        }
         if let Some(modal) = &mut self.permission_modal {
             if modal.selected > 0 {
                 modal.selected -= 1;
@@ -705,6 +720,12 @@ impl App {
     }
 
     pub fn modal_down(&mut self) {
+        if let Some(modal) = &mut self.provider_modal {
+            if modal.selected + 1 < modal.providers.len() {
+                modal.selected += 1;
+            }
+            return;
+        }
         if let Some(modal) = &mut self.permission_modal {
             if modal.selected + 1 < modal.options.len() {
                 modal.selected += 1;
@@ -713,6 +734,35 @@ impl App {
     }
 
     pub fn modal_select(&mut self) {
+        // Handle provider modal
+        if let Some(modal) = self.provider_modal.take() {
+            let name = modal.providers[modal.selected].clone();
+            if let Some(new_provider) = self.config.providers.get(&name).cloned() {
+                let key = new_provider
+                    .api_key
+                    .clone()
+                    .or_else(|| std::env::var(&new_provider.api_key_env).ok());
+                self.config.default_provider = name.clone();
+                self.provider = new_provider.clone();
+                let _ = self.config.save();
+                if let Some(key) = key {
+                    self.api_key = key;
+                    self.messages.push(ChatMessage {
+                        role: MessageRole::Assistant,
+                        content: format!("Switched to **{}** ({})", name, self.provider.model),
+                    });
+                } else {
+                    self.api_key = String::new();
+                    self.messages.push(ChatMessage {
+                        role: MessageRole::Assistant,
+                        content: format!("Switched to **{}** ({}). No API key set — use `/key <key>` or set ${}", name, self.provider.model, new_provider.api_key_env),
+                    });
+                }
+            }
+            return;
+        }
+
+        // Handle permission modal
         let modal = match self.permission_modal.take() {
             Some(m) => m,
             None => return,
@@ -768,6 +818,10 @@ impl App {
     }
 
     pub fn modal_cancel(&mut self) {
+        if self.provider_modal.is_some() {
+            self.provider_modal = None;
+            return;
+        }
         // Treat cancel as deny
         if self.permission_modal.is_some() {
             // Set selected to Deny and call modal_select
@@ -779,7 +833,7 @@ impl App {
     }
 
     pub fn has_modal(&self) -> bool {
-        self.permission_modal.is_some()
+        self.permission_modal.is_some() || self.provider_modal.is_some()
     }
 
     pub fn insert_char(&mut self, c: char) {
@@ -1110,7 +1164,7 @@ fn get_commands() -> Vec<String> {
         "clear".to_string(),
         "sessions".to_string(),
         "load".to_string(),
-        "provider".to_string(),
+        "model".to_string(),
         "key".to_string(),
         "help".to_string(),
         "quit".to_string(),
@@ -1121,8 +1175,8 @@ const HELP_TEXT: &str = r#"**Commands:**
 - `/clear` - Save and start new session
 - `/sessions` - List saved sessions
 - `/load <id>` - Load a saved session
-- `/provider` - List providers
-- `/provider <name>` - Switch provider
+- `/model` - Switch model
+- `/model <name>` - Switch to named model
 - `/key <key>` - Set API key for current provider
 - `/quit` - Exit (also /exit, /q)
 - `/help` - Show this help
