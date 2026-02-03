@@ -22,6 +22,8 @@ pub struct Provider {
     pub base_url: String,
     pub model: String,
     pub api_key_env: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
 }
 
 impl Config {
@@ -92,6 +94,37 @@ impl Default for Config {
                 base_url: "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
                 model: "gemini-3-flash-preview".to_string(),
                 api_key_env: "HAL_API_KEY_GEMINI".to_string(),
+                api_key: None,
+            },
+        );
+
+        providers.insert(
+            "openai".to_string(),
+            Provider {
+                base_url: "https://api.openai.com/v1".to_string(),
+                model: "gpt-4o".to_string(),
+                api_key_env: "HAL_API_KEY_OPENAI".to_string(),
+                api_key: None,
+            },
+        );
+
+        providers.insert(
+            "anthropic".to_string(),
+            Provider {
+                base_url: "https://api.anthropic.com/v1".to_string(),
+                model: "claude-sonnet-4-20250514".to_string(),
+                api_key_env: "HAL_API_KEY_ANTHROPIC".to_string(),
+                api_key: None,
+            },
+        );
+
+        providers.insert(
+            "openrouter".to_string(),
+            Provider {
+                base_url: "https://openrouter.ai/api/v1".to_string(),
+                model: "anthropic/claude-sonnet-4".to_string(),
+                api_key_env: "HAL_API_KEY_OPENROUTER".to_string(),
+                api_key: None,
             },
         );
 

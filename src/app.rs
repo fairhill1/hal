@@ -117,8 +117,11 @@ impl App {
             .ok_or_else(|| format!("Provider '{}' not found", config.default_provider))?
             .clone();
 
-        let api_key = std::env::var(&provider.api_key_env)
-            .map_err(|_| format!("Set ${} with your API key", provider.api_key_env))?;
+        let api_key = provider
+            .api_key
+            .clone()
+            .or_else(|| std::env::var(&provider.api_key_env).ok())
+            .ok_or_else(|| format!("Set ${} with your API key", provider.api_key_env))?;
 
         let tool_defs = tools::get_tool_definitions(&config.mode);
         // Build system prompt with optional HAL.md context

@@ -14,7 +14,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
-use std::io::{stdout, Write};
+use std::io::{self, stdout, BufRead, Write};
 use std::time::Duration;
 
 fn main() {
@@ -61,10 +61,102 @@ fn main() {
         i += 1;
     }
 
+    // Check if the current provider has an API key configured
+    let needs_setup = {
+        let provider = config.get_provider();
+        match provider {
+            Some(p) => p.api_key.is_none() && std::env::var(&p.api_key_env).is_err(),
+            None => true,
+        }
+    };
+
+    if needs_setup {
+        config = match setup(config) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Setup failed: {}", e);
+                std::process::exit(1);
+            }
+        };
+    }
+
     if let Err(e) = run(config, session_to_load) {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
+}
+
+fn setup(mut config: Config) -> Result<Config, String> {
+    println!();
+    println!("  Welcome to hal!");
+    println!();
+
+    // Collect provider names sorted for stable ordering
+    let mut provider_names: Vec<String> = config.providers.keys().cloned().collect();
+    provider_names.sort();
+
+    // Put the default provider first
+    if let Some(pos) = provider_names.iter().position(|n| n == &config.default_provider) {
+        let name = provider_names.remove(pos);
+        provider_names.insert(0, name);
+    }
+
+    println!("  Select a provider:");
+    for (i, name) in provider_names.iter().enumerate() {
+        let label = if name == "gemini" {
+            format!("{} (free)", name)
+        } else {
+            name.clone()
+        };
+        println!("    {}. {}", i + 1, label);
+    }
+    print!("  > ");
+    io::stdout().flush().map_err(|e| e.to_string())?;
+
+    let stdin = io::stdin();
+    let choice_line = stdin.lock().lines().next()
+        .ok_or_else(|| "No input".to_string())?
+        .map_err(|e| e.to_string())?;
+
+    let choice: usize = choice_line.trim().parse()
+        .map_err(|_| "Invalid choice".to_string())?;
+
+    if choice == 0 || choice > provider_names.len() {
+        return Err("Invalid choice".to_string());
+    }
+
+    let selected_name = &provider_names[choice - 1];
+    config.default_provider = selected_name.clone();
+
+    let env_var = config.providers.get(selected_name)
+        .map(|p| p.api_key_env.clone())
+        .unwrap_or_default();
+
+    println!();
+    print!("  Enter your {} API key (or set ${}): ", selected_name, env_var);
+    io::stdout().flush().map_err(|e| e.to_string())?;
+
+    let key_line = stdin.lock().lines().next()
+        .ok_or_else(|| "No input".to_string())?
+        .map_err(|e| e.to_string())?;
+
+    let key = key_line.trim().to_string();
+    if key.is_empty() {
+        return Err("API key cannot be empty".to_string());
+    }
+
+    // Store the key in the provider config
+    if let Some(provider) = config.providers.get_mut(selected_name) {
+        provider.api_key = Some(key);
+    }
+
+    config.save().map_err(|e| format!("Failed to save config: {}", e))?;
+
+    println!();
+    println!("  Saved! Starting hal...");
+    println!();
+
+    Ok(config)
 }
 
 fn print_help() {
