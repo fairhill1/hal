@@ -2,6 +2,8 @@
 
 An agentic TUI coding assistant written in Rust.
 
+![hal screenshot](assets/screenshot.png)
+
 ## Install
 
 ```
