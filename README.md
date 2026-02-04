@@ -1,6 +1,8 @@
 # hal
 
-Blazing fast TUI coding agent. Bring your own keys.
+Blazing fast TUI coding agent that won't eat your RAM.
+
+Bring your own keys.
 
 ![hal screenshot](assets/screenshot.png)
 
