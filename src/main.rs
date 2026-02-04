@@ -18,6 +18,26 @@ use std::io::{self, stdout, BufRead, Write};
 use std::time::Duration;
 
 pub fn self_update() -> Result<String, String> {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    // Check latest version from GitHub API
+    let api_url = "https://api.github.com/repos/fairhill1/hal/releases/latest";
+    let api_response: serde_json::Value = ureq::get(api_url)
+        .call()
+        .map_err(|e| format!("Failed to check latest version: {}", e))?
+        .body_mut()
+        .read_json()
+        .map_err(|e| format!("Failed to parse release info: {}", e))?;
+
+    let latest_tag = api_response["tag_name"]
+        .as_str()
+        .ok_or("No tag_name in release")?
+        .trim_start_matches('v');
+
+    if latest_tag == current_version {
+        return Ok(format!("Already on the latest version (v{}).", current_version));
+    }
+
     let os = match std::env::consts::OS {
         "linux" => "linux",
         "macos" => "macos",
@@ -62,7 +82,7 @@ pub fn self_update() -> Result<String, String> {
 
     std::fs::rename(&temp_path, &current_exe).map_err(|e| format!("Failed to replace binary: {}", e))?;
 
-    Ok("Updated successfully! Restart hal to use the new version.".to_string())
+    Ok(format!("Updated v{} → v{}. Restart hal to use the new version.", current_version, latest_tag))
 }
 
 fn main() {
