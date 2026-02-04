@@ -1,8 +1,6 @@
 # hal
 
-Blazing fast TUI coding agent that won't eat your RAM.
-
-Bring your own keys.
+A zippy TUI coding agent that won't eat your RAM. BYOK.
 
 ![hal screenshot](assets/screenshot.png)
 
