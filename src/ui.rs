@@ -236,8 +236,47 @@ fn draw_chat(frame: &mut Frame, app: &mut App, area: Rect) {
             }
             MessageRole::Assistant => {
                 lines.push(Line::from(""));
+                let mut in_code_block = false;
+                let mut code_lang: Option<String> = None;
                 for line in msg.content.lines() {
-                    if line.starts_with("### ") {
+                    if line.starts_with("```") {
+                        if in_code_block {
+                            in_code_block = false;
+                            code_lang = None;
+                        } else {
+                            in_code_block = true;
+                            let lang = line.trim_start_matches('`').trim();
+                            code_lang = if lang.is_empty() { None } else { Some(lang.to_string()) };
+                        }
+                        continue;
+                    }
+                    if in_code_block {
+                        let ss = get_syntax_set();
+                        let ts = get_theme_set();
+                        let syntax = code_lang.as_ref()
+                            .and_then(|l| ss.find_syntax_by_token(l))
+                            .unwrap_or_else(|| ss.find_syntax_plain_text());
+                        let theme = &ts.themes["base16-ocean.dark"];
+                        let mut highlighter = HighlightLines::new(syntax, theme);
+                        let bg = Color::Rgb(40, 44, 52);
+                        let mut spans = vec![Span::styled("  ", Style::default().bg(bg))];
+                        match highlighter.highlight_line(&format!("{}\n", line), ss) {
+                            Ok(highlighted) => {
+                                for (syntect_style, text) in highlighted {
+                                    let fg = Color::Rgb(
+                                        syntect_style.foreground.r,
+                                        syntect_style.foreground.g,
+                                        syntect_style.foreground.b,
+                                    );
+                                    spans.push(Span::styled(text.to_string(), Style::default().fg(fg).bg(bg)));
+                                }
+                            }
+                            Err(_) => {
+                                spans.push(Span::styled(line.to_string(), Style::default().fg(Color::Gray).bg(bg)));
+                            }
+                        }
+                        lines.push(Line::from(spans));
+                    } else if line.starts_with("### ") {
                         lines.push(Line::from(Span::styled(
                             &line[4..],
                             Style::default().fg(Color::Magenta).italic(),
@@ -256,11 +295,6 @@ fn draw_chat(frame: &mut Frame, app: &mut App, area: Rect) {
                         let mut spans = vec![Span::styled("  • ", Style::default().fg(Color::Magenta))];
                         spans.extend(render_inline_styles(&line[2..], None));
                         lines.push(Line::from(spans));
-                    } else if line.starts_with("```") {
-                        lines.push(Line::from(Span::styled(
-                            line,
-                            Style::default().fg(Color::Gray),
-                        )));
                     } else if line.starts_with("**") && line.ends_with("**") {
                         lines.push(Line::from(Span::styled(
                             line.trim_matches('*'),

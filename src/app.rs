@@ -1073,7 +1073,7 @@ impl App {
 fn get_system_prompt(mode: &Mode) -> &'static str {
     match mode {
         Mode::Coding => {
-            "You are a coding agent with file access. Be concise. Use grep to locate code, then read specific line ranges when needed. When you complete a task using tools, briefly state what you did and stop. The user can see all tool outputs including file diffs, so never repeat code in markdown blocks after writing files. For build commands (cargo build, npm run, etc.), use `2>&1 | tail -30` by default. If you need to find specific errors in verbose output, use `2>&1 | grep -i error` instead."
+            "You are a coding agent with file access. Be concise. Use grep to locate code, then read specific line ranges when needed. When you complete a task using tools, briefly state what you did and stop. The user can see all tool outputs including file diffs, so NEVER repeat code in markdown blocks after using `write_file` or `edit_file`, not even when summarizing what was done after completing a task. For build commands (cargo build, npm run, etc.), use `2>&1 | tail -30` by default. If you need to find specific errors in verbose output, use `2>&1 | grep -i error` instead."
         }
         Mode::Coach => {
             "You are a productivity coach. Track projects in projects.md. Give practical advice and encouragement."
