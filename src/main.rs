@@ -17,6 +17,54 @@ use ratatui::prelude::*;
 use std::io::{self, stdout, BufRead, Write};
 use std::time::Duration;
 
+pub fn self_update() -> Result<String, String> {
+    let os = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "macos",
+        "windows" => "windows",
+        other => return Err(format!("Unsupported OS: {}", other)),
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        other => return Err(format!("Unsupported architecture: {}", other)),
+    };
+
+    let url = format!(
+        "https://github.com/fairhill1/hal/releases/latest/download/hal-{}-{}",
+        os, arch
+    );
+
+    let current_exe = std::env::current_exe().map_err(|e| format!("Failed to get current exe path: {}", e))?;
+
+    let response = ureq::get(&url).call().map_err(|e| format!("Download failed: {}", e))?;
+
+    let body = response
+        .into_body()
+        .read_to_vec()
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    if body.is_empty() {
+        return Err("Downloaded file is empty".to_string());
+    }
+
+    // Write to a temp file next to the binary, then rename (atomic replace)
+    let temp_path = current_exe.with_extension("tmp");
+    std::fs::write(&temp_path, &body).map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    // Set executable permissions on unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Failed to set permissions: {}", e))?;
+    }
+
+    std::fs::rename(&temp_path, &current_exe).map_err(|e| format!("Failed to replace binary: {}", e))?;
+
+    Ok("Updated successfully! Restart hal to use the new version.".to_string())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut config = Config::load();
@@ -52,6 +100,12 @@ fn main() {
             "--help" | "-h" => {
                 print_help();
                 return;
+            }
+            "update" => {
+                match self_update() {
+                    Ok(msg) => { println!("{}", msg); return; }
+                    Err(e) => { eprintln!("Update failed: {}", e); std::process::exit(1); }
+                }
             }
             _ => {
                 eprintln!("Unknown argument: {}", args[i]);
@@ -158,12 +212,15 @@ fn print_help() {
     println!("hal - Chat with LLMs from your terminal");
     println!("\nUSAGE:");
     println!("    hal [OPTIONS]");
+    println!("    hal update");
     println!("\nOPTIONS:");
     println!("    -c, --coach              Run in coach mode");
     println!("    -m, --model <NAME>       Model name from config (default: gemini)");
     println!("    -r, --resume             Resume the last session");
     println!("    -s, --session <ID>       Load a specific session by ID");
     println!("    -h, --help               Print help");
+    println!("\nCOMMANDS:");
+    println!("    update                   Update hal to the latest version");
 }
 
 fn run(config: Config, session: Option<session::Session>) -> Result<(), String> {

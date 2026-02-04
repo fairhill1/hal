@@ -283,10 +283,42 @@ impl App {
                 self.input_cursor = 0;
                 return;
             }
+            "/update" => {
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: "Updating hal...".to_string(),
+                });
+                self.input.clear();
+                self.input_cursor = 0;
+                match crate::self_update() {
+                    Ok(msg) => {
+                        self.messages.push(ChatMessage {
+                            role: MessageRole::Assistant,
+                            content: msg,
+                        });
+                    }
+                    Err(e) => {
+                        self.messages.push(ChatMessage {
+                            role: MessageRole::Assistant,
+                            content: format!("Update failed: {}", e),
+                        });
+                    }
+                }
+                return;
+            }
             "/key" => {
                 self.messages.push(ChatMessage {
                     role: MessageRole::Assistant,
                     content: format!("Usage: `/key <key>` — sets the API key for **{}**", self.config.default_provider),
+                });
+                self.input.clear();
+                self.input_cursor = 0;
+                return;
+            }
+            "/load" => {
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: "Usage: `/load <id>` — load a saved session. Use `/sessions` to list available session IDs.".to_string(),
                 });
                 self.input.clear();
                 self.input_cursor = 0;
@@ -387,6 +419,17 @@ impl App {
                     self.error = Some(format!("Failed to load session: {}", e));
                 }
             }
+            self.input.clear();
+            self.input_cursor = 0;
+            return;
+        }
+
+        // Don't send unrecognized slash commands to the LLM
+        if input.starts_with('/') {
+            self.messages.push(ChatMessage {
+                role: MessageRole::Assistant,
+                content: format!("Unknown command: `{}`. Type `/help` to see available commands.", input.split_whitespace().next().unwrap_or(&input)),
+            });
             self.input.clear();
             self.input_cursor = 0;
             return;
@@ -1166,6 +1209,7 @@ fn get_commands() -> Vec<String> {
         "load".to_string(),
         "model".to_string(),
         "key".to_string(),
+        "update".to_string(),
         "help".to_string(),
         "quit".to_string(),
     ]
@@ -1178,6 +1222,7 @@ const HELP_TEXT: &str = r#"**Commands:**
 - `/model` - Switch model
 - `/model <name>` - Switch to named model
 - `/key <key>` - Set API key for current provider
+- `/update` - Update hal to the latest version
 - `/quit` - Exit (also /exit, /q)
 - `/help` - Show this help
 
