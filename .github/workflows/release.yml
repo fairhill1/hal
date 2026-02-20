@@ -19,6 +19,12 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             artifact: hal-linux-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: hal-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: hal-macos-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: hal-windows-x86_64.exe
@@ -47,12 +53,12 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary (Linux)
-        if: runner.os == 'Linux'
+      - name: Rename binary (Linux/macOS)
+        if: runner.os != 'Windows'
         run: mv target/${{ matrix.target }}/release/hal ${{ matrix.artifact }}
 
       - name: Rename binary (Windows)
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         run: mv target/${{ matrix.target }}/release/hal.exe ${{ matrix.artifact }}
 
       - name: Upload artifact
@@ -76,5 +82,7 @@ jobs:
           files: |
             hal-linux-x86_64
             hal-linux-aarch64
+            hal-macos-x86_64
+            hal-macos-aarch64
             hal-windows-x86_64.exe
           generate_release_notes: true

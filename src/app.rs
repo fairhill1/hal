@@ -42,6 +42,33 @@ pub struct ProviderModal {
 }
 
 #[derive(Debug, Clone)]
+pub struct DiffModal {
+    pub path: String,
+    pub diff_text: String,       // The diff to display
+    pub new_content: String,     // Content to write if accepted
+    pub tool_name: String,       // "write_file" or "edit_file"
+    pub pending_tool_id: String,
+    pub scroll_offset: u16,
+    pub options: Vec<&'static str>,
+    pub selected: usize,
+}
+
+impl DiffModal {
+    pub fn new(path: String, diff_text: String, new_content: String, tool_name: String, tool_id: String) -> Self {
+        Self {
+            path,
+            diff_text,
+            new_content,
+            tool_name,
+            pending_tool_id: tool_id,
+            scroll_offset: 0,
+            options: vec!["Accept", "Reject"],
+            selected: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PermissionModal {
     pub path: String,
     pub reason: String,
@@ -98,7 +125,9 @@ pub struct App {
     pub error: Option<String>,
     pub token_usage: Option<(u32, u32)>, // (prompt, completion)
     pub permission_modal: Option<PermissionModal>,
+    pub diff_modal: Option<DiffModal>,
     pub provider_modal: Option<ProviderModal>,
+    pub auto_accept: bool,               // Auto-accept file changes without confirmation
     pub temp_allowed_paths: Vec<String>, // Paths allowed for this session only
     tool_defs: Vec<Value>,
     api_key: String,
@@ -161,6 +190,7 @@ impl App {
             (Vec::new(), Session::new())
         };
 
+        let auto_accept = config.auto_accept;
         Ok(App {
             config,
             input: String::new(),
@@ -181,7 +211,9 @@ impl App {
             error: None,
             token_usage: None,
             permission_modal: None,
+            diff_modal: None,
             provider_modal: None,
+            auto_accept,
             temp_allowed_paths: Vec::new(),
             tool_defs,
             api_key,
@@ -270,6 +302,23 @@ impl App {
                         content: format!("**Saved sessions:**\n{}", list.join("\n")),
                     });
                 }
+                self.input.clear();
+                self.input_cursor = 0;
+                return;
+            }
+            "/autoaccept" => {
+                self.auto_accept = !self.auto_accept;
+                self.config.auto_accept = self.auto_accept;
+                let _ = self.config.save();
+                let msg = if self.auto_accept {
+                    "Auto-accept **on** — file changes apply automatically"
+                } else {
+                    "Auto-accept **off** — file changes require approval"
+                };
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Assistant,
+                    content: msg.to_string(),
+                });
                 self.input.clear();
                 self.input_cursor = 0;
                 return;
@@ -626,6 +675,43 @@ impl App {
             }
         }
 
+        // Check if write/edit needs manual approval
+        if !self.auto_accept && (name == "write_file" || name == "edit_file") {
+            let preview_result = if name == "write_file" {
+                tools::preview_write_file(&args)
+            } else {
+                tools::preview_edit_file(&args)
+            };
+
+            match preview_result {
+                Ok((diff_text, new_content)) => {
+                    let path = serde_json::from_str::<Value>(&args)
+                        .ok()
+                        .and_then(|v| v["path"].as_str().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    self.diff_modal = Some(DiffModal::new(
+                        path, diff_text, new_content, name.clone(), id.clone(),
+                    ));
+                    return; // Wait for user response
+                }
+                Err(e) => {
+                    // Preview failed — send error as tool result
+                    self.pending_tool_calls.remove(0);
+                    self.messages.push(ChatMessage {
+                        role: MessageRole::Tool { name: name.clone(), path: None },
+                        content: e.clone(),
+                    });
+                    self.api_messages.push(json!({
+                        "role": "tool",
+                        "tool_call_id": id,
+                        "content": e
+                    }));
+                    self.process_pending_tools();
+                    return;
+                }
+            }
+        }
+
         // Remove from pending and start execution
         self.pending_tool_calls.remove(0);
         self.state = AppState::ToolCall(format_tool_call(&name, &args));
@@ -755,6 +841,12 @@ impl App {
             }
             return;
         }
+        if let Some(modal) = &mut self.diff_modal {
+            if modal.selected > 0 {
+                modal.selected -= 1;
+            }
+            return;
+        }
         if let Some(modal) = &mut self.permission_modal {
             if modal.selected > 0 {
                 modal.selected -= 1;
@@ -769,10 +861,40 @@ impl App {
             }
             return;
         }
+        if let Some(modal) = &mut self.diff_modal {
+            if modal.selected + 1 < modal.options.len() {
+                modal.selected += 1;
+            }
+            return;
+        }
         if let Some(modal) = &mut self.permission_modal {
             if modal.selected + 1 < modal.options.len() {
                 modal.selected += 1;
             }
+        }
+    }
+
+    pub fn diff_modal_scroll_up(&mut self) {
+        if let Some(modal) = &mut self.diff_modal {
+            modal.scroll_offset = modal.scroll_offset.saturating_add(1);
+        }
+    }
+
+    pub fn diff_modal_scroll_down(&mut self) {
+        if let Some(modal) = &mut self.diff_modal {
+            modal.scroll_offset = modal.scroll_offset.saturating_sub(1);
+        }
+    }
+
+    pub fn diff_modal_page_up(&mut self) {
+        if let Some(modal) = &mut self.diff_modal {
+            modal.scroll_offset = modal.scroll_offset.saturating_add(10);
+        }
+    }
+
+    pub fn diff_modal_page_down(&mut self) {
+        if let Some(modal) = &mut self.diff_modal {
+            modal.scroll_offset = modal.scroll_offset.saturating_sub(10);
         }
     }
 
@@ -802,6 +924,51 @@ impl App {
                     });
                 }
             }
+            return;
+        }
+
+        // Handle diff modal
+        if let Some(modal) = self.diff_modal.take() {
+            // Remove from pending
+            if !self.pending_tool_calls.is_empty() {
+                self.pending_tool_calls.remove(0);
+            }
+
+            if modal.selected == 0 {
+                // Accept — apply the write
+                tools::apply_write(&modal.path, &modal.new_content);
+                // Show diff in chat (same as auto-accept would)
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Tool {
+                        name: modal.tool_name.clone(),
+                        path: Some(modal.path.clone()),
+                    },
+                    content: modal.diff_text.clone(),
+                });
+                self.api_messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": modal.pending_tool_id,
+                    "content": modal.diff_text
+                }));
+            } else {
+                // Reject
+                let result = format!("User rejected changes to {}", modal.path);
+                self.messages.push(ChatMessage {
+                    role: MessageRole::Tool {
+                        name: modal.tool_name.clone(),
+                        path: None,
+                    },
+                    content: result.clone(),
+                });
+                self.api_messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": modal.pending_tool_id,
+                    "content": result
+                }));
+            }
+
+            // Continue with remaining tools or next API call
+            self.process_pending_tools();
             return;
         }
 
@@ -865,6 +1032,14 @@ impl App {
             self.provider_modal = None;
             return;
         }
+        // Treat cancel as reject for diff modal
+        if self.diff_modal.is_some() {
+            if let Some(modal) = &mut self.diff_modal {
+                modal.selected = 1; // Reject
+            }
+            self.modal_select();
+            return;
+        }
         // Treat cancel as deny
         if self.permission_modal.is_some() {
             // Set selected to Deny and call modal_select
@@ -876,7 +1051,7 @@ impl App {
     }
 
     pub fn has_modal(&self) -> bool {
-        self.permission_modal.is_some() || self.provider_modal.is_some()
+        self.permission_modal.is_some() || self.diff_modal.is_some() || self.provider_modal.is_some()
     }
 
     pub fn insert_char(&mut self, c: char) {
@@ -1204,6 +1379,7 @@ fn filter_items(items: &[String], query: &str, max: usize) -> Vec<String> {
 
 fn get_commands() -> Vec<String> {
     vec![
+        "autoaccept".to_string(),
         "clear".to_string(),
         "sessions".to_string(),
         "load".to_string(),
@@ -1216,6 +1392,7 @@ fn get_commands() -> Vec<String> {
 }
 
 const HELP_TEXT: &str = r#"**Commands:**
+- `/autoaccept` - Toggle auto-accept file changes (on/off)
 - `/clear` - Save and start new session
 - `/sessions` - List saved sessions
 - `/load <id>` - Load a saved session

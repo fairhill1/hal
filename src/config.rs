@@ -7,7 +7,13 @@ use std::path::PathBuf;
 pub struct Config {
     pub default_provider: String,
     pub mode: Mode,
+    #[serde(default = "default_true")]
+    pub auto_accept: bool,
     pub providers: HashMap<String, Provider>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -151,6 +157,7 @@ impl Default for Config {
         Config {
             default_provider: "gemini".to_string(),
             mode: Mode::Coding,
+            auto_accept: true,
             providers,
         }
     }

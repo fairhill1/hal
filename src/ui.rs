@@ -1,4 +1,4 @@
-use crate::app::{App, AppState, MessageRole, PermissionModal, ProviderModal, PickerMode, MAX_PICKER_ITEMS};
+use crate::app::{App, AppState, DiffModal, MessageRole, PermissionModal, ProviderModal, PickerMode, MAX_PICKER_ITEMS};
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
@@ -122,6 +122,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Draw picker popup if active
     if app.picker_active() && !app.picker_results.is_empty() {
         draw_picker(frame, app, chunks[2]);
+    }
+
+    // Draw diff modal if active
+    if let Some(modal) = &app.diff_modal {
+        draw_diff_modal(frame, modal);
     }
 
     // Draw permission modal if active
@@ -787,6 +792,131 @@ fn draw_provider_modal(frame: &mut Frame, modal: &ProviderModal, active: &str, p
         .wrap(Wrap { trim: true });
 
     frame.render_widget(para, modal_area);
+}
+
+fn draw_diff_modal(frame: &mut Frame, modal: &DiffModal) {
+    let area = frame.area();
+
+    // Use most of the screen
+    let width = (area.width - 4).min(area.width.saturating_sub(4));
+    let height = (area.height - 4).min(area.height.saturating_sub(4));
+
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+
+    let modal_area = Rect { x, y, width, height };
+
+    frame.render_widget(Clear, modal_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Magenta))
+        .title(" Review Changes ")
+        .title_style(Style::default().fg(Color::Magenta));
+
+    let inner = block.inner(modal_area);
+    frame.render_widget(block, modal_area);
+
+    // Split into diff area and options bar at bottom
+    let chunks = Layout::vertical([
+        Constraint::Min(1),    // Diff content
+        Constraint::Length(1), // Separator
+        Constraint::Length(1), // Options
+    ])
+    .split(inner);
+
+    // Render diff lines with syntax highlighting and line numbers
+    let mut lines: Vec<Line> = Vec::new();
+
+    let mut diff_lines = modal.diff_text.lines();
+    // First line is the header (e.g., "Wrote path" or "Edited path")
+    if let Some(first) = diff_lines.next() {
+        lines.push(Line::from(Span::styled(
+            first.to_string(),
+            Style::default().fg(Color::Gray),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    let gutter_style = Style::default().fg(Color::DarkGray);
+
+    for line in diff_lines {
+        if line == "···" {
+            // Hunk separator
+            lines.push(Line::from(Span::styled(
+                "  ···".to_string(),
+                gutter_style,
+            )));
+            continue;
+        }
+        if line.is_empty() {
+            lines.push(Line::from(""));
+            continue;
+        }
+
+        // Parse format: <marker><line_num>│<code>
+        if let Some(sep_pos) = line.find('│') {
+            let marker_char = line.as_bytes()[0];
+            let line_num_str = &line[1..sep_pos];
+            let code = &line[sep_pos + '│'.len_utf8()..];
+
+            let mut spans = Vec::new();
+
+            // Line number gutter
+            spans.push(Span::styled(format!("{} ", line_num_str), gutter_style));
+
+            // Reconstruct diff line for highlight_diff_line
+            let diff_line = match marker_char {
+                b'+' => format!("+{}", code),
+                b'-' => format!("-{}", code),
+                _ => format!(" {}", code), // context: add space for alignment with +/-
+            };
+            spans.extend(highlight_diff_line(&diff_line, Some(&modal.path)));
+
+            lines.push(Line::from(spans));
+        } else {
+            // Fallback for lines without the expected format
+            let highlighted = highlight_diff_line(line, Some(&modal.path));
+            lines.push(Line::from(highlighted));
+        }
+    }
+
+    // Calculate scroll for diff content
+    let content_height = lines.len() as u16;
+    let view_height = chunks[0].height;
+    let max_scroll = content_height.saturating_sub(view_height);
+    let scroll = max_scroll.saturating_sub(modal.scroll_offset.min(max_scroll));
+
+    let diff_para = Paragraph::new(Text::from(lines))
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
+
+    frame.render_widget(diff_para, chunks[0]);
+
+    // Separator
+    let sep = Paragraph::new(Line::from(
+        "─".repeat(chunks[1].width as usize),
+    ))
+    .style(Style::default().fg(Color::Gray));
+    frame.render_widget(sep, chunks[1]);
+
+    // Options bar
+    let mut option_spans = Vec::new();
+    for (i, option) in modal.options.iter().enumerate() {
+        if i > 0 {
+            option_spans.push(Span::styled("   ", Style::default()));
+        }
+        let style = if i == modal.selected {
+            Style::default().fg(Color::Magenta).bold()
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let prefix = if i == modal.selected { "› " } else { "  " };
+        option_spans.push(Span::styled(format!("{}{}", prefix, option), style));
+    }
+
+    let options_para = Paragraph::new(Line::from(option_spans));
+    frame.render_widget(options_para, chunks[2]);
 }
 
 #[cfg(test)]
