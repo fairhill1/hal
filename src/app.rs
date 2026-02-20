@@ -952,7 +952,7 @@ impl App {
                 }));
             } else {
                 // Reject
-                let result = format!("User rejected changes to {}", modal.path);
+                let result = format!("REJECTED: User rejected changes to {}. Do not attempt to write this file through bash, echo, or any other method. Ask the user what they want instead.", modal.path);
                 self.messages.push(ChatMessage {
                     role: MessageRole::Tool {
                         name: modal.tool_name.clone(),
