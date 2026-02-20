@@ -165,6 +165,109 @@ pub fn execute_tool_by_name(name: &str, args_str: &str) -> String {
     }
 }
 
+/// Preview a write_file without actually writing. Returns (diff_text, new_content).
+pub fn preview_write_file(args_str: &str) -> Result<(String, String), String> {
+    let args: Value = serde_json::from_str(args_str).unwrap_or(json!({}));
+    let path = args["path"].as_str().unwrap_or("");
+    let content = args["content"].as_str().unwrap_or("");
+
+    if path.is_empty() {
+        return Err("Error: path is required".to_string());
+    }
+
+    let old_content = fs::read_to_string(path).unwrap_or_default();
+    let is_new = old_content.is_empty() && !Path::new(path).exists();
+
+    let diff = if is_new {
+        let mut output = format!("Created {}\n", path);
+        for (i, line) in content.lines().enumerate() {
+            output.push_str(&format!("+{:>4}│{}\n", i + 1, line));
+        }
+        output
+    } else if old_content == content {
+        format!("No changes to {}", path)
+    } else {
+        format_diff_with_context(path, "Wrote", &old_content, content)
+    };
+
+    Ok((diff, content.to_string()))
+}
+
+/// Preview an edit_file without actually writing. Returns (diff_text, new_content).
+pub fn preview_edit_file(args_str: &str) -> Result<(String, String), String> {
+    let args: Value = serde_json::from_str(args_str).unwrap_or(json!({}));
+    let path = args["path"].as_str().unwrap_or("");
+    let old = args["old"].as_str().unwrap_or("");
+    let new = args["new"].as_str().unwrap_or("");
+
+    if path.is_empty() {
+        return Err("Error: path is required".to_string());
+    }
+    if old.is_empty() {
+        return Err("Error: old text is required".to_string());
+    }
+
+    let content = fs::read_to_string(path).map_err(|e| format!("Error reading file: {}", e))?;
+
+    let count = content.matches(old).count();
+    if count == 0 {
+        return Err(format!("Error: text not found in {}", path));
+    }
+    if count > 1 {
+        return Err(format!("Error: text appears {} times in {} - be more specific", count, path));
+    }
+
+    let updated = content.replacen(old, new, 1);
+    let diff_text = format_diff_with_context(path, "Edited", &content, &updated);
+
+    Ok((diff_text, updated))
+}
+
+/// Format a unified diff with 3 lines of context and line numbers.
+/// Each line is formatted as: <marker><line_num_4_chars>│<code>
+/// Hunks are separated by "···" lines.
+fn format_diff_with_context(path: &str, action: &str, old_content: &str, new_content: &str) -> String {
+    let diff = similar::TextDiff::from_lines(old_content, new_content);
+    let mut output = format!("{} {}\n", action, path);
+
+    for (group_idx, group) in diff.grouped_ops(3).iter().enumerate() {
+        if group_idx > 0 {
+            output.push_str("···\n");
+        }
+        for op in group {
+            for change in diff.iter_changes(op) {
+                let (marker, line_num) = match change.tag() {
+                    similar::ChangeTag::Equal => (' ', change.new_index().unwrap_or(0) + 1),
+                    similar::ChangeTag::Delete => ('-', change.old_index().unwrap_or(0) + 1),
+                    similar::ChangeTag::Insert => ('+', change.new_index().unwrap_or(0) + 1),
+                };
+                let value = change.value();
+                output.push_str(&format!("{}{:>4}│{}", marker, line_num, value));
+                if change.missing_newline() {
+                    output.push('\n');
+                }
+            }
+        }
+    }
+
+    output
+}
+
+/// Apply a previewed write (used after user accepts).
+pub fn apply_write(path: &str, content: &str) -> String {
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                return format!("Error creating directories: {}", e);
+            }
+        }
+    }
+    match fs::write(path, content) {
+        Ok(_) => format!("Wrote {}", path),
+        Err(e) => format!("Error writing file: {}", e),
+    }
+}
+
 // Coding tools
 
 fn tool_read_file(args: &Value) -> String {
@@ -628,7 +731,7 @@ fn run_sandbox_linux(command: &str, cwd: &Path, allowed_paths: &[String]) -> std
 
     // Check if bwrap is available
     if Command::new("which").arg("bwrap").output()?.status.success() {
-        let mut args = vec![
+        let args = vec![
             "--ro-bind", "/usr", "/usr",
             "--ro-bind", "/bin", "/bin",
             "--ro-bind", "/lib", "/lib",
@@ -661,7 +764,6 @@ fn run_sandbox_linux(command: &str, cwd: &Path, allowed_paths: &[String]) -> std
     } else {
         // Fallback: run without sandbox but restricted to cwd
         // This is less secure but allows basic functionality
-        eprintln!("Warning: bwrap not found, running without sandbox");
         Command::new("bash")
             .args(["-c", command])
             .current_dir(cwd)
@@ -673,7 +775,6 @@ fn run_sandbox_linux(command: &str, cwd: &Path, allowed_paths: &[String]) -> std
 fn run_sandbox_windows(command: &str, cwd: &Path, _allowed_paths: &[String]) -> std::io::Result<Output> {
     // Windows sandboxing is complex; for now, just run in cwd
     // Future: could use Windows Sandbox API or AppContainer
-    eprintln!("Warning: Windows sandbox not implemented, running in current directory only");
     Command::new("cmd")
         .args(["/C", command])
         .current_dir(cwd)

@@ -312,8 +312,20 @@ fn handle_event(app: &mut App, event: Event) {
         }
         Event::Key(key) => handle_key(app, key),
         Event::Mouse(mouse) => match mouse.kind {
-            MouseEventKind::ScrollUp => app.scroll_up(),
-            MouseEventKind::ScrollDown => app.scroll_down(),
+            MouseEventKind::ScrollUp => {
+                if app.diff_modal.is_some() {
+                    app.diff_modal_scroll_up();
+                } else {
+                    app.scroll_up();
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if app.diff_modal.is_some() {
+                    app.diff_modal_scroll_down();
+                } else {
+                    app.scroll_down();
+                }
+            }
             _ => {}
         },
         _ => {}
@@ -341,9 +353,25 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Handle permission modal
-    if app.has_modal() {
+    // Handle modals (permission, diff, provider)
+    if app.diff_modal.is_some() {
+        // Diff modal: Up/Down scroll, Left/Right switch options
         match key.code {
+            KeyCode::Up => app.diff_modal_scroll_up(),
+            KeyCode::Down => app.diff_modal_scroll_down(),
+            KeyCode::PageUp => app.diff_modal_page_up(),
+            KeyCode::PageDown => app.diff_modal_page_down(),
+            KeyCode::Left | KeyCode::Tab => app.modal_up(),
+            KeyCode::Right | KeyCode::BackTab => app.modal_down(),
+            KeyCode::Enter => app.modal_select(),
+            KeyCode::Esc => app.modal_cancel(),
+            _ => {}
+        }
+        return;
+    } else if app.has_modal() {
+        match key.code {
+            KeyCode::Left => app.modal_up(),
+            KeyCode::Right => app.modal_down(),
             KeyCode::Up => app.modal_up(),
             KeyCode::Down => app.modal_down(),
             KeyCode::Enter => app.modal_select(),
